@@ -1,0 +1,12 @@
+[
+    {
+        "address": "0x45c20270852db2a88d8cb228c120c6d0637bccdf19afe54cb3f1da5cc85f4b57",
+        "chain": "87",
+        "url": "https://eth.public-rpc.com/"
+    },
+    {
+        "address": "0x1e116e3d007e50da06c6ea30fd76ae59f50d9f579cf3ec2011d0b103a4b81a4a",
+        "chain": "125",
+        "url": "https://rpc-mainnet.maticvigil.com/"
+    }
+]
