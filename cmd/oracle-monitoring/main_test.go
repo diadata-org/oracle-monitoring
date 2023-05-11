@@ -8,6 +8,7 @@ import (
 	"github.com/diadata-org/oracle-monitoring/internal/config"
 	"github.com/diadata-org/oracle-monitoring/internal/database"
 	"github.com/diadata-org/oracle-monitoring/internal/evm"
+	"github.com/diadata-org/oracle-monitoring/internal/models"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
@@ -51,13 +52,10 @@ func TestMain(t *testing.T) {
 	// Wait until block is mined and check if record was created in database and contract creation timestamp got populated
 	time.Sleep(15 * time.Second)
 
-	row := db.Pool.QueryRow(context.Background(), "SELECT EXTRACT(epoch FROM oracle_creation_timestamp)::bigint as oracle_creation_timestamp, asset, asset_value, data_timestamp FROM events WHERE oracle_address = $1 ORDER BY block_number DESC LIMIT 1", config.EVM.OracleAddress)
-
-	var creationTimestamp uint64
-	err = row.Scan(&creationTimestamp)
+	event, err := models.GetLatestEventByOracleAddress(db, config.EVM.OracleAddress)
 	assert.NoError(t, err)
 
-	assert.NotEqual(t, uint64(0), creationTimestamp, "Oracle creation timestamp should not be 0")
+	assert.NotEqual(t, uint64(0), event.OracleCreationTimestamp, "Oracle creation timestamp should not be 0")
 
 	// Call contract again with same calldata
 	tx, err = evm.SendTransaction(config.EVM.OracleAddress, config.PrivateKey, data, 50000)
@@ -67,7 +65,7 @@ func TestMain(t *testing.T) {
 
 	// Wait until block is mined and check if 2nd record was created
 	time.Sleep(15 * time.Second)
-	row = db.Pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM events WHERE oracle_address = $1", config.EVM.OracleAddress)
+	row := db.Pool.QueryRow(context.Background(), "SELECT COUNT(*) FROM events WHERE oracle_address = $1", config.EVM.OracleAddress)
 	var count int
 	err = row.Scan(&count)
 	assert.NoError(t, err)

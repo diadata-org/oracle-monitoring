@@ -17,9 +17,9 @@ type Config struct {
 }
 
 func LoadConfig() (*Config, error) {
-	err := godotenv.Load()
+	err := godotenv.Load("./.env", "../../.env")
 	if err != nil {
-		log.Println("Error loading .env file")
+		log.Fatalf("Error loading .env file")
 	}
 
 	// Read and parse environment variables

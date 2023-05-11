@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -20,26 +21,25 @@ type DB struct {
 	Pool *pgxpool.Pool
 }
 
-func New(config Config) (*DB, error) {
+func New(config Config) (DB, error) {
 	dsn := fmt.Sprintf("postgres://%s:%s@%s:%d/%s?sslmode=disable",
 		config.User, config.Password, config.Host, config.Port, config.Database)
 
 	poolConfig, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return nil, fmt.Errorf("failed to parse PostgreSQL connection string: %w", err)
+		log.Fatalf("failed to parse PostgreSQL connection string: %w", err)
 	}
 
 	poolConfig.ConnConfig.Logger = &qLogger{}
 
 	pool, err := pgxpool.ConnectConfig(context.Background(), poolConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to TimescaleDB: %w", err)
+		log.Fatalf("failed to connect to TimescaleDB: %w", err)
 	}
 
 	db := &DB{Pool: pool}
-	return db, nil
+	return *db, nil
 }
-
 func (db *DB) Close() {
 	db.Pool.Close()
 }

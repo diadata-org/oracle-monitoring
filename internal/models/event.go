@@ -109,7 +109,56 @@ func ParseEvent(evmClient *evm.EVMClient, vLog *types.Log) (*Event, error) {
 	return event, nil
 }
 
-func StoreEvent(db *database.DB, event *Event) error {
+func GetLatestEventByOracleAddress(db database.DB, oracleAddress string) (*Event, error) {
+	row := db.Pool.QueryRow(context.Background(), `
+		SELECT 
+			id,
+			oracle_address,
+			chain_id,
+			tx_hash,
+			block_number,
+			EXTRACT(epoch FROM block_timestamp)::bigint as block_timestamp,
+			asset,
+			asset_value,
+			data_timestamp,
+			gas_used,
+			gas_price,
+			total_cost,
+			remaining_gas_funds,
+			tx_sender,
+			EXTRACT(epoch FROM oracle_creation_timestamp)::bigint as oracle_creation_timestamp 
+		FROM 
+			events 
+		WHERE 
+			oracle_address = $1 
+		ORDER BY 
+			block_number DESC LIMIT 1
+	`, oracleAddress)
+
+	var event Event
+
+	err := row.Scan(
+		&event.Id,
+		&event.OracleAddress,
+		&event.ChainID,
+		&event.TxHash,
+		&event.BlockNumber,
+		&event.BlockTimestamp,
+		&event.Asset,
+		&event.AssetValue,
+		&event.DataTimestamp,
+		&event.GasUsed,
+		&event.GasPrice,
+		&event.TotalCost,
+		&event.RemainingGasFunds,
+		&event.TxSender,
+		&event.OracleCreationTimestamp,
+	)
+
+	return &event, err
+}
+
+func StoreEvent(db database.DB, event *Event) error {
 	query := `
         INSERT INTO events (
             oracle_address,

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"log"
 
 	"github.com/diadata-org/oracle-monitoring/internal/config"
@@ -11,54 +10,11 @@ import (
 	"github.com/ethereum/go-ethereum/core/types"
 )
 
-func GetOracleCreationTimestamp(db *database.DB, evmClient *evm.EVMClient, address string) (uint64, error) {
-	row := db.Pool.QueryRow(context.Background(), `
-		SELECT 
-			id,
-			oracle_address,
-			chain_id,
-			tx_hash,
-			block_number,
-			EXTRACT(epoch FROM block_timestamp)::bigint as block_timestamp,
-			asset,
-			asset_value,
-			data_timestamp,
-			gas_used,
-			gas_price,
-			total_cost,
-			remaining_gas_funds,
-			tx_sender,
-			EXTRACT(epoch FROM oracle_creation_timestamp)::bigint as oracle_creation_timestamp 
-		FROM 
-			events 
-		WHERE 
-			oracle_address = $1 
-		ORDER BY 
-			block_number DESC LIMIT 1
-	`, address)
-
-	var event models.Event
-
-	err := row.Scan(
-		&event.Id,
-		&event.OracleAddress,
-		&event.ChainID,
-		&event.TxHash,
-		&event.BlockNumber,
-		&event.BlockTimestamp,
-		&event.Asset,
-		&event.AssetValue,
-		&event.DataTimestamp,
-		&event.GasUsed,
-		&event.GasPrice,
-		&event.TotalCost,
-		&event.RemainingGasFunds,
-		&event.TxSender,
-		&event.OracleCreationTimestamp,
-	)
+func GetOracleCreationTimestamp(db database.DB, evmClient *evm.EVMClient, address string) (uint64, error) {
+	event, err := models.GetLatestEventByOracleAddress(db, address)
 
 	if err != nil {
-		oracleCreationTimestamp, _ := evmClient.IterateAndGetContractCreationTimestamp(address)
+		oracleCreationTimestamp := evmClient.CbFinder.GetContractCreationBlock(address)
 		return oracleCreationTimestamp, nil
 	}
 	return event.OracleCreationTimestamp, nil
