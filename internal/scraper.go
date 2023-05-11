@@ -126,7 +126,7 @@ func ParseTransaction(client *ethclient.Client, block *types.Block, tx *types.Tr
         // to is nil on contract creation
         metadata.TransactionTo = oracle.Address
 
-        err := database.UpdateOracleCreation(db, &metadata)
+        err := database.UpdateOracleCreation(db, oracle.Address.String(), block.Number().Uint64())
         if err != nil {
             return false, fmt.Errorf("failed to update oracle creation data: %v", err)
         }
@@ -141,14 +141,14 @@ func ParseTransaction(client *ethclient.Client, block *types.Block, tx *types.Tr
             return fmt.Errorf("failed to parse oracle update: %v", err)
         }
 
-        metrics := OracleMetrics{
+        metrics := &OracleMetrics{
             TransactionMetadata: *metadata,
             AssetKey:            oracleUpdate.Key,
             AssetPrice:          oracleUpdate.Value.String(),
             UpdateTimestamp:     oracleUpdate.Timestamp.String(),
         }
 
-        err := database.InsertOracleMetrics(db, &metrics)
+        err := database.InsertOracleMetrics(db, metrics)
         if err != nil {
             return false, fmt.Errorf("failed to insert oracle metrics: %v", err)
         }
@@ -205,7 +205,7 @@ func ScrapeSingleOracle(client *ethclient.Client, oracle *Oracle, db *pgxpool.Po
     return nil
 }
 
-func Scrape(url string, oracles []Oracle, db *pgxpool.Pool) error {
+func Update(url string, oracles []Oracle, db *pgxpool.Pool) error {
     client, err := ConnectToNode(url)
     if err != nil {
         return fmt.Errorf("failed to connect to the node: %v", err)
