@@ -1,7 +1,6 @@
 package config
 
 import (
-	"log"
 	"os"
 	"strconv"
 
@@ -17,10 +16,8 @@ type Config struct {
 }
 
 func LoadConfig() (*Config, error) {
-	err := godotenv.Load("./.env", "../../.env")
-	if err != nil {
-		log.Fatalf("Error loading .env file")
-	}
+	_ = godotenv.Load("./.env")
+	_ = godotenv.Load("../../.env")
 
 	// Read and parse environment variables
 	dbHost := os.Getenv("DB_HOST")
