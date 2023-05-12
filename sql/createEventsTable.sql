@@ -1,0 +1,17 @@
+CREATE TABLE IF NOT EXISTS events (
+    id SERIAL PRIMARY KEY,
+    oracle_address TEXT NOT NULL,
+    chain_id BIGINT NOT NULL,
+    tx_hash TEXT NOT NULL,
+    block_number BIGINT NOT NULL,
+    block_timestamp TIMESTAMP NOT NULL,
+    asset TEXT NOT NULL,
+    asset_value NUMERIC(38) NOT NULL,
+    data_timestamp BIGINT NOT NULL,
+    gas_used BIGINT NOT NULL,
+    gas_price NUMERIC(38) NOT NULL,
+    total_cost NUMERIC(38) NOT NULL,
+    remaining_gas_funds NUMERIC(38) NOT NULL,
+    tx_sender TEXT NOT NULL,
+    oracle_creation_timestamp TIMESTAMP NOT NULL,
+);
