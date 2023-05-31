@@ -1,0 +1,10 @@
+[
+    {
+        "contract-address": "0xa93546947f3015c986695750b8bbea8e26d65856",
+        "contract-abi": "oracle-v2",
+        "chain-id": "1",
+        "node-url": "https://eth-mainnet.g.alchemy.com/v2/",
+        "creation-block": 0,
+        "latest-scraped-block": 0
+    }
+]
