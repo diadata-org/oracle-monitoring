@@ -1,0 +1,10 @@
+[
+    {
+        "contract-address": "0x8616833EDaDCb0d777391A38c7618BB44195D7BC",
+        "contract-abi": "oracle-v2",
+        "chain-id": "80001",
+        "node-url": "https://polygon-mumbai.g.alchemy.com/v2/aPs_MWBRv7yUZd1QZHkMyVjzkdj--xhy",
+        "creation-block": 0,
+        "latest-scraped-block": 0
+    }
+]
