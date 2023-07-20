@@ -3,6 +3,7 @@ package helpers
 import (
 	"encoding/json"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/common"
@@ -35,9 +36,10 @@ type OracleUpdate struct {
 // Metadata on any transaction
 type TransactionMetadata struct {
 	BlockNumber     string
-	BlockTimestamp  string
-	TransactionFrom string
-	TransactionTo   string
+	ChainID         string
+	BlockTimestamp  time.Time
+	TransactionFrom common.Address
+	TransactionTo   common.Address
 	TransactionHash string
 	TransactionCost string
 	SenderBalance   string
@@ -52,6 +54,13 @@ type OracleMetrics struct {
 	AssetKey        string
 	AssetPrice      string
 	UpdateTimestamp string
+}
+
+type OracleUpdateEvent struct {
+	Address        string
+	Block          string
+	ChainID        string
+	BlockTimestamp time.Time
 }
 
 func PrettyPrint(i interface{}) string {

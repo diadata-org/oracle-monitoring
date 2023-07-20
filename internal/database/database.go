@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/joho/godotenv"
 
 	"github.com/diadata-org/oracle-monitoring/internal/helpers"
 )
@@ -18,17 +18,16 @@ const (
 )
 
 const (
-	updateOraclesCreationQuery = "UPDATE oracles SET creation_block = $2 WHERE contract_address = $1"
-	selectOraclesQuery         = "SELECT address, chainid,  COALESCE(latest.scraped_block, 0) AS latest_scraped_block FROM oracleconfig LEFT JOIN (SELECT oracle_address, MAX(update_block) AS scraped_block FROM feederupdates GROUP BY oracle_address) latest ON oracleconfig.address = latest.oracle_address"
-	insertMetricsQuery         = "INSERT INTO feederupdates (oracle_address, transaction_hash, transaction_cost, asset_key, asset_price, update_block, update_from, from_balance, gas_cost, gas_used,creation_block) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11)"
+	updateOraclesCreationQuery = "UPDATE oracleconfig SET creation_block = $2, creation_block_time=$3 WHERE address = $1 and chainid =$4"
+	selectOraclesQuery         = `SELECT address, chainid,  COALESCE(latest.scraped_block, 0) AS latest_scraped_block FROM oracleconfig LEFT JOIN (SELECT oracle_address, MAX(update_block) AS scraped_block FROM feederupdates GROUP BY oracle_address) latest ON oracleconfig.address = latest.oracle_address WHERE  oracleconfig.chainid = '%s'`
 )
 
 // Database is an interface that represents the required database operations.
 type Database interface {
 	Connect() error
 	InsertOracles(targets []helpers.Target) error
-	UpdateOracleCreation(address string, block uint64) error
-	SelectOracles() ([]helpers.Target, error)
+	UpdateOracleCreation(address string, block string, blocktime time.Time, chainid string) error
+	SelectOracles(string) ([]helpers.Target, error)
 	InsertOracleMetrics(metrics *helpers.OracleMetrics) error
 	GetRPCByChainID() (map[string]string, error)
 
@@ -46,20 +45,12 @@ func NewPostgresDB() Database {
 
 func (pdb *postgresDB) Connect() error {
 	// Load database connection info from .env file
-	err := godotenv.Load()
-	if err != nil {
-		return fmt.Errorf("error loading .env file: %v", err)
-	}
-
+	var err error
 	dbUser := os.Getenv("DB_USER")
 	dbPass := os.Getenv("DB_PASS")
 	dbName := os.Getenv("DB_NAME")
 	dbHost := os.Getenv("DB_HOST")
 	dbPort := os.Getenv("DB_PORT")
-
-	dbHost = "127.0.0.1"
-	dbName = "postgres"
-	dbPort = "5432"
 
 	// Construct the connection URI
 	uri := fmt.Sprintf("postgres://%s:%s@%s:%s/%s", dbUser, dbPass, dbHost, dbPort, dbName)
@@ -85,9 +76,9 @@ func (pdb *postgresDB) InsertOracles(targets []helpers.Target) error {
 	return nil
 }
 
-func (pdb *postgresDB) UpdateOracleCreation(address string, block uint64) error {
+func (pdb *postgresDB) UpdateOracleCreation(address string, block string, blocktime time.Time, chainid string) error {
 	// Update the creation block of an oracle
-	_, err := pdb.db.Exec(context.Background(), updateOraclesCreationQuery, address, block)
+	_, err := pdb.db.Exec(context.Background(), updateOraclesCreationQuery, address, block, blocktime, chainid)
 	if err != nil {
 		return fmt.Errorf("failed to update the creation block in the DB: %v", err)
 	}
@@ -95,11 +86,13 @@ func (pdb *postgresDB) UpdateOracleCreation(address string, block uint64) error 
 	return nil
 }
 
-func (pdb *postgresDB) SelectOracles() ([]helpers.Target, error) {
+func (pdb *postgresDB) SelectOracles(chainID string) ([]helpers.Target, error) {
 	targets := []helpers.Target{}
 
 	// Retrieve oracles with the latest scraped block
-	rows, err := pdb.db.Query(context.Background(), selectOraclesQuery)
+
+	query := fmt.Sprintf(selectOraclesQuery, chainID)
+	rows, err := pdb.db.Query(context.Background(), query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch data from the DB query: %v", err)
 	}
@@ -107,7 +100,6 @@ func (pdb *postgresDB) SelectOracles() ([]helpers.Target, error) {
 
 	// Format the results as struct
 	for rows.Next() {
-		fmt.Println("--")
 		var target helpers.Target
 		err := rows.Scan(&target.ContractAddress, &target.ChainId, &target.LatestScrapedBlock)
 		if err != nil {
@@ -120,21 +112,43 @@ func (pdb *postgresDB) SelectOracles() ([]helpers.Target, error) {
 }
 
 func (pdb *postgresDB) InsertOracleMetrics(metrics *helpers.OracleMetrics) error {
+	insertMetricsQuery := fmt.Sprintf("INSERT INTO %s (oracle_address,transaction_hash,transaction_cost,asset_key,asset_price,update_block, update_from, from_balance, gas_cost, gas_used,creation_block,chain_id,update_time) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11,$12,$13)", feederupdatesTable)
+
+	fmt.Println("--insert---", insertMetricsQuery)
+
+	fmt.Println("metrics.TransactionTo", metrics.TransactionTo.String())
+	fmt.Println("metrics.TransactionHash", metrics.TransactionHash)
+	fmt.Println("metrics.TransactionCost", metrics.TransactionCost)
+	fmt.Println("metrics.AssetKey", metrics.AssetKey)
+	fmt.Println("metrics.AssetPrice", metrics.AssetPrice)
+	fmt.Println("metrics.BlockNumber", metrics.BlockNumber)
+	fmt.Println("metrics.TransactionFrom", metrics.TransactionFrom.String())
+	fmt.Println("metrics.SenderBalance", metrics.SenderBalance)
+	fmt.Println("metrics.GasCost", metrics.GasCost)
+	fmt.Println("metrics.GasUsed", metrics.GasUsed)
+	fmt.Println("metrics.ChainID", metrics.ChainID)
+	fmt.Println("metrics.BlockTimestamp", metrics.BlockTimestamp)
+
+	metrics.CreationBlock = "9"
+	fmt.Println("metrics.CreationBlock", metrics.CreationBlock)
+
 	// Insert metrics into the database
 	_, err := pdb.db.Exec(
 		context.Background(),
 		insertMetricsQuery,
-		metrics.TransactionTo,
+		metrics.TransactionTo.String(),
 		metrics.TransactionHash,
 		metrics.TransactionCost,
 		metrics.AssetKey,
 		metrics.AssetPrice,
 		metrics.BlockNumber,
-		metrics.TransactionFrom,
+		metrics.TransactionFrom.String(),
 		metrics.SenderBalance,
 		metrics.GasCost,
 		metrics.GasUsed,
 		metrics.CreationBlock,
+		metrics.ChainID,
+		metrics.BlockTimestamp,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to insert metrics in the DB: %v", err)
@@ -171,3 +185,5 @@ func (pdb *postgresDB) GetRPCByChainID() (rpc map[string]string, err error) {
 func (pdb *postgresDB) Close() {
 	pdb.db.Close()
 }
+
+// SELECT address, chainid,  COALESCE(latest.scraped_block, 0) AS latest_scraped_block FROM oracleconfig LEFT JOIN (SELECT oracle_address,chain_id, MAX(update_block) AS scraped_block FROM feederupdates GROUP BY oracle_address,chain_id) latest ON oracleconfig.address = latest.oracle_address;
