@@ -1,0 +1,199 @@
+// package main
+
+// import (
+// 	"context"
+// 	"fmt"
+// 	"log"
+// 	"math/big"
+// 	"sync"
+// 	"time"
+
+// 	"github.com/ethereum/go-ethereum/accounts/abi"
+// 	"github.com/ethereum/go-ethereum/common"
+
+// 	"github.com/diadata-org/oracle-monitoring/internal/config"
+// 	"github.com/diadata-org/oracle-monitoring/internal/database"
+// 	"github.com/diadata-org/oracle-monitoring/internal/helpers"
+// 	"github.com/diadata-org/oracle-monitoring/internal/scraper"
+// )
+
+// func main() {
+// 	var rpcmap map[string]string
+
+// 	var wg sync.WaitGroup
+
+// 	wg.Add(1)
+// 	// Parse the command-line arguments
+// 	// configFilePath := flag.String("targets", "oracles.json", "Path to the configuration file")
+// 	// flag.Parse()
+
+// 	// read the configuration data from the file
+// 	// targets, err := config.LoadTargetConfig(*configFilePath)
+// 	// if err != nil {
+// 	// 	log.Fatalf("failed to read config file: %v", err)
+// 	// }
+
+// 	// connect to db
+
+// 	db := database.NewPostgresDB()
+
+// 	err := db.Connect()
+// 	if err != nil {
+// 		log.Fatalf("failed to connect to the database: %v", err)
+// 	}
+// 	defer db.Close()
+
+// 	// update the list of targets
+// 	// err = db.InsertOracles(targets)
+// 	// if err != nil {
+// 	// 	log.Fatalf("failed to update the list of target oracles: %v", err)
+// 	// }
+
+// 	// fetch the full list of oracles with the known metadata
+// 	metricschan := make(chan helpers.OracleMetrics)
+// 	rpcmap, err = db.GetRPCByChainID()
+
+// 	if err != nil {
+// 		log.Printf("failed to get rpcmap: %v", err)
+
+// 	}
+
+// 	ticker := time.NewTicker(1 * time.Minute)
+
+// 	go func(chainid string) {
+// 		var wg sync.WaitGroup
+// 		var oracles []helpers.Oracle
+
+// 		_oracles, err := db.SelectOracles(chainid)
+// 		if err != nil {
+// 			log.Fatalf("failed to get the saved metadata from the DB: %v", err)
+// 		}
+
+// 		minimum := big.NewInt(0)
+// 		maximum := big.NewInt(0)
+
+// 		// add the ABI
+// 		for _, _oracle := range _oracles {
+// 			var oracle helpers.Oracle
+// 			var oracleABI *abi.ABI
+// 			oracle.ContractAddress = common.HexToAddress(_oracle.ContractAddress)
+// 			oracle.NodeUrl = _oracle.NodeUrl
+// 			oracle.LatestScrapedBlock = new(big.Int).SetUint64(_oracle.LatestScrapedBlock)
+
+// 			if minimum.Cmp(oracle.LatestScrapedBlock) == 1 {
+// 				minimum = oracle.LatestScrapedBlock
+// 			}
+
+// 			if maximum.Cmp(oracle.LatestScrapedBlock) < 0 {
+// 				maximum = oracle.LatestScrapedBlock
+// 			}
+
+// 			// read the oracle contract ABI from a file
+// 			oracleABI, err = config.LoadContractAbi(fmt.Sprintf("internal/abi/%s.json", "oracle-v2"))
+// 			if err != nil {
+// 				log.Fatalf("failed to load the oracle contract ABI: %v", err)
+// 			}
+
+// 			oracle.ContractABI = oracleABI
+// 			oracle.ChainID = _oracle.ChainId
+
+// 			oracles = append(oracles, oracle)
+
+// 		}
+
+// 		fmt.Printf("\n Scrapping started for chain %s, upto  minimum block %s and total oracles %d", chainid, minimum, len(oracles))
+
+// 		ctx := context.Background()
+
+// 		sc := scraper.NewScraper(ctx, metricschan, rpcmap, minimum, maximum, oracles, &wg, chainid)
+
+// 		sc.UpdateHistorical()
+
+// 	}("5")
+
+// 	go func() {
+// 		for {
+// 			select {
+
+// 			case <-ticker.C:
+
+// 				if true {
+// 					fmt.Println("Ticker fired at:", time.Now())
+// 					// for chain, _ := range rpcmap {
+// 					go func(chainid string) {
+// 						var wg sync.WaitGroup
+// 						var oracles []helpers.Oracle
+
+// 						_oracles, err := db.SelectOracles(chainid)
+// 						if err != nil {
+// 							log.Fatalf("failed to get the saved metadata from the DB: %v", err)
+// 						}
+
+// 						minimum := big.NewInt(0)
+// 						maximum := big.NewInt(0)
+
+// 						// add the ABI
+// 						for _, _oracle := range _oracles {
+// 							var oracle helpers.Oracle
+// 							var oracleABI *abi.ABI
+// 							oracle.ContractAddress = common.HexToAddress(_oracle.ContractAddress)
+// 							oracle.NodeUrl = _oracle.NodeUrl
+// 							oracle.LatestScrapedBlock = new(big.Int).SetUint64(_oracle.LatestScrapedBlock)
+
+// 							if minimum.Cmp(oracle.LatestScrapedBlock) == 1 {
+// 								minimum = oracle.LatestScrapedBlock
+// 							}
+
+// 							if maximum.Cmp(oracle.LatestScrapedBlock) < 0 {
+// 								maximum = oracle.LatestScrapedBlock
+// 							}
+
+// 							// read the oracle contract ABI from a file
+// 							oracleABI, err = config.LoadContractAbi(fmt.Sprintf("internal/abi/%s.json", "oracle-v2"))
+// 							if err != nil {
+// 								log.Fatalf("failed to load the oracle contract ABI: %v", err)
+// 							}
+
+// 							oracle.ContractABI = oracleABI
+// 							oracle.ChainID = _oracle.ChainId
+
+// 							oracles = append(oracles, oracle)
+
+// 						}
+
+// 						fmt.Printf("\n Scrapping started for chain %s, upto  minimum block %s and total oracles %d", chainid, minimum, len(oracles))
+
+// 						ctx := context.Background()
+
+// 						sc := scraper.NewScraper(ctx, metricschan, rpcmap, minimum, maximum, oracles, &wg, chainid)
+
+// 						sc.UpdateRecent()
+
+// 					}("5")
+// 				}
+// 			}
+// 		}
+// 		// }
+// 	}()
+
+// 	log.Println("wait for events")
+
+// 	for {
+// 		select {
+// 		case metrics, ok := <-metricschan:
+// 			{
+// 				if !ok {
+// 					log.Println("Metrics channel closed, stopping loop.")
+// 					return
+// 				}
+
+// 				fmt.Println("---", metrics)
+// 				err := db.InsertOracleMetrics(&metrics)
+// 				if err != nil {
+// 					log.Println("Error inserting oracle metrics:", err)
+// 				}
+// 			}
+// 		}
+// 	}
+
+// }

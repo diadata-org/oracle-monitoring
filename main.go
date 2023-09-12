@@ -59,7 +59,7 @@ func runScraper(db database.Database, chainID string, isHistorical bool, rpcmap 
 	if len(oracles) > 0 {
 		minimum, maximum := calculateMinMaxBlocks(oracles)
 
-		fmt.Printf("\n Scrapping started for chain %s, up to minimum block %s, maximum block %s and total oracles %d isHistorical %b", chainID, minimum, maximum, len(oracles), isHistorical)
+		fmt.Printf("\n Scrapping started for chain %s, up to minimum block %s, maximum block %s and total oracles %d isHistorical %t", chainID, minimum, maximum, len(oracles), isHistorical)
 
 		ctx := context.Background()
 		sc := scraper.NewScraper(ctx, metricsChan, updateEventChan, rpcmap, minimum, maximum, oracles, &wg, chainID)
