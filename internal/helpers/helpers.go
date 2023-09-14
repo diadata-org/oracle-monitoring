@@ -10,12 +10,13 @@ import (
 )
 
 type Target struct {
-	ContractAddress    string `json:"contract-address"`
-	ContractABI        string `json:"contract-abi"`
-	ChainId            string `json:"chain-id"`
-	NodeUrl            string `json:"node-url"`
-	CreationBlock      uint64 `json:"creation-block"`
-	LatestScrapedBlock uint64 `json:"latest-scraped-block"`
+	ContractAddress    string    `json:"contract-address"`
+	ContractABI        string    `json:"contract-abi"`
+	ChainId            string    `json:"chain-id"`
+	NodeUrl            string    `json:"node-url"`
+	CreationBlock      uint64    `json:"creation-block"`
+	LatestScrapedBlock uint64    `json:"latest-scraped-block"`
+	CreatedDate        time.Time `json:"createddate"`
 }
 
 type Oracle struct {
@@ -24,6 +25,7 @@ type Oracle struct {
 	NodeUrl            string
 	ChainID            string
 	LatestScrapedBlock *big.Int
+	CreatedDate        time.Time
 }
 
 // Event emitted by the oracle contract

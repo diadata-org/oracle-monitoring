@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
@@ -24,11 +25,14 @@ import (
 type Scraper interface {
 	UpdateHistorical() error
 	UpdateRecent() error
+	UpdateEvents(oracleaddresses []common.Address) error
 }
 
 type scraperImpl struct {
 	nodes            map[string]*ethclient.Client
+	wsNodes          map[string]*ethclient.Client
 	rpc              map[string]string
+	wsurl            map[string]string
 	mchan            chan helpers.OracleMetrics
 	createChan       chan helpers.OracleUpdateEvent
 	ctx              context.Context
@@ -40,12 +44,13 @@ type scraperImpl struct {
 	oraclesaddresses []common.Address
 	oraclesmap       map[common.Address]helpers.Oracle
 	client           *ethclient.Client
+	wsClient         *ethclient.Client
 	isHistorical     bool
 	logger           *log.Logger
 }
 
 // NewScraper creates a new instance of the Scraper interface.
-func NewScraper(context context.Context, mchan chan helpers.OracleMetrics, createChan chan helpers.OracleUpdateEvent, rpcmap map[string]string, minblock *big.Int, maxblock *big.Int, oracles []helpers.Oracle, wg *sync.WaitGroup, chainID string) Scraper {
+func NewScraper(context context.Context, mchan chan helpers.OracleMetrics, createChan chan helpers.OracleUpdateEvent, rpcmap, wsmap map[string]string, minblock *big.Int, maxblock *big.Int, oracles []helpers.Oracle, wg *sync.WaitGroup, chainID string) Scraper {
 
 	id := uuid.Must(uuid.NewRandom()).String()
 	logger := log.New(os.Stderr, "", log.LstdFlags)
@@ -54,7 +59,9 @@ func NewScraper(context context.Context, mchan chan helpers.OracleMetrics, creat
 	s := &scraperImpl{
 		mchan:        mchan,
 		nodes:        make(map[string]*ethclient.Client),
+		wsNodes:      make(map[string]*ethclient.Client),
 		rpc:          rpcmap,
+		wsurl:        wsmap,
 		ctx:          context,
 		minblock:     minblock,
 		maxblock:     maxblock,
@@ -80,8 +87,35 @@ func NewScraper(context context.Context, mchan chan helpers.OracleMetrics, creat
 	if err != nil {
 		s.logger.Println("error connecting to rpc chainid ", chainID)
 	}
+
+	s.wsClient, err = s.connectToWsNode()
+	if err != nil {
+		s.logger.Println("error connecting to ws chainid  ", chainID)
+		panic("")
+	}
 	return s
 
+}
+
+func (s *scraperImpl) connectToWsNode() (*ethclient.Client, error) {
+	// Check if the client for the given URL is already connected
+
+	url := s.wsurl[s.chainID]
+
+	fmt.Println("url", url)
+
+	if client, ok := s.wsNodes[url]; ok {
+		return client, nil
+	}
+
+	client, err := ethclient.DialContext(s.ctx, url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to the node: %v", err)
+	}
+
+	// Store the connected client for future use
+	s.wsNodes[url] = client
+	return client, nil
 }
 
 func (s *scraperImpl) connectToNode() (*ethclient.Client, error) {
@@ -245,6 +279,100 @@ func (s *scraperImpl) parseTransaction(ctx context.Context, client *ethclient.Cl
 	return done, nil
 }
 
+func (s *scraperImpl) listenEvents(addresses []common.Address) {
+
+	ctx := context.Background()
+
+	updateeventchan := make(chan types.Log)
+
+	if len(s.oraclesaddresses) <= 0 {
+		return
+	}
+
+	topic := s.oraclesmap[s.oraclesaddresses[0]].ContractABI.Events["OracleUpdate"].ID
+
+	subscription, err := s.wsClient.SubscribeFilterLogs(ctx, ethereum.FilterQuery{
+		Addresses: addresses,
+		Topics:    [][]common.Hash{{topic}},
+	}, updateeventchan)
+	if err != nil {
+		log.Fatalf("Failed to subscribe to event logs: %v", err)
+	}
+
+	defer subscription.Unsubscribe()
+
+	for {
+		select {
+		case err := <-subscription.Err():
+			log.Println("Subscription error: %v", err)
+		case eventLog := <-updateeventchan:
+
+			eventData := make(map[string]interface{})
+
+			err := s.oraclesmap[eventLog.Address].ContractABI.UnpackIntoMap(eventData, "OracleUpdate", eventLog.Data)
+			if err != nil {
+				log.Printf("ailed to unpack log data: %v", err)
+			}
+
+			receipt, err := s.client.TransactionReceipt(s.ctx, eventLog.TxHash)
+			if err != nil {
+				fmt.Printf("failed to get transaction receipt: %v", err)
+			}
+
+			block, err := s.client.BlockByNumber(s.ctx, new(big.Int).SetUint64(eventLog.BlockNumber))
+			if err != nil {
+				s.logger.Printf("failed to retrieve a block: %v, %v, chainid %s ", eventLog.BlockNumber, err, s.chainID)
+				continue
+			}
+
+			metadata := helpers.TransactionMetadata{}
+			metadata.BlockNumber = strconv.Itoa(int(eventLog.BlockNumber))
+			// metadata.BlockTimestamp = eventLog.
+			metadata.TransactionHash = eventLog.TxHash.Hex()
+			metadata.TransactionCost = new(big.Int).Mul(new(big.Int).SetUint64(receipt.GasUsed), receipt.EffectiveGasPrice).String()
+			metadata.BlockTimestamp = time.Unix(int64(block.Time()), 0)
+			metadata.GasUsed = strconv.FormatUint(receipt.GasUsed, 10)
+			metadata.GasCost = receipt.EffectiveGasPrice.String()
+
+			tx, _, err := s.client.TransactionByHash(context.Background(), eventLog.TxHash)
+			if err != nil {
+				fmt.Printf("failed to get sender: %v", err)
+			}
+
+			sender, err := s.getTransactionSender(tx)
+			if err != nil {
+				fmt.Printf("failed to get sender: %v", err)
+			}
+
+			metadata.TransactionFrom = sender
+
+			if tx.To() != nil {
+				metadata.TransactionTo = *tx.To()
+			}
+
+			// use lates balance instead of block number as that need archieve node
+			senderBalance, err := s.client.BalanceAt(ctx, sender, nil)
+			if err != nil {
+				s.logger.Printf("failed to get sender balance: %v", err)
+			}
+
+			metadata.SenderBalance = senderBalance.String()
+
+			metadata.TransactionTo = eventLog.Address
+
+			metrics := &helpers.OracleMetrics{
+				TransactionMetadata: metadata,
+				AssetKey:            eventData["key"].(string),
+				AssetPrice:          eventData["value"].(*big.Int).String(),
+				UpdateTimestamp:     eventData["timestamp"].(*big.Int).String(),
+			}
+
+			s.mchan <- *metrics
+
+		}
+	}
+}
+
 func (s *scraperImpl) parseBlock(block *types.Block) (bool, error) {
 	done := false
 
@@ -265,16 +393,19 @@ func (s *scraperImpl) parseBlock(block *types.Block) (bool, error) {
 		done = done || creation
 	}
 
-	s.logger.Printf("parsed block  %s, for chain  %s isHistorical %b", block.Number().String(), s.chainID, s.isHistorical)
+	s.logger.Printf("parsed block  %s, for chain  %s isHistorical %t", block.Number().String(), s.chainID, s.isHistorical)
 
 	return done, nil
 }
 
-func (s *scraperImpl) recent() error {
+func (s *scraperImpl) recent(current uint64) (err error) {
 
-	current, err := s.client.BlockNumber(s.ctx)
-	if err != nil {
-		return fmt.Errorf("failed to retrieve the latest block: %v", err)
+	if current == 0 {
+		current, err = s.client.BlockNumber(s.ctx)
+		if err != nil {
+			return fmt.Errorf("failed to retrieve the latest block: %v", err)
+		}
+
 	}
 
 	for current > s.maxblock.Uint64() {
@@ -304,14 +435,14 @@ func (s *scraperImpl) historical() error {
 	if err != nil {
 		return fmt.Errorf("failed to retrieve the latest block: %v", err)
 	}
-	switch s.chainID {
-	case "80001":
-		current = 34889087
+	// switch s.chainID {
+	// case "80001":
+	// 	current = 34889087
 
-	case "5":
-		current = 8263129
+	// case "5":
+	// 	current = 8263129
 
-	}
+	// }
 	// change it to minimum
 
 	for current > 0 && current > s.minblock.Uint64() {
@@ -338,14 +469,23 @@ func (s *scraperImpl) historical() error {
 }
 
 func (s *scraperImpl) UpdateHistorical() error {
+	log.Printf("Scrapping started for chain %s, up to minimum block %s, maximum block %s and total oracles %d UpdateHistorical ", s.chainID, s.minblock, s.maxblock, len(s.oracles))
 	s.isHistorical = true
 	go s.historical()
 	return nil
 }
 
 func (s *scraperImpl) UpdateRecent() error {
+	log.Printf("Scrapping started for chain %s, up to minimum block %s, maximum block %s and total oracles %d UpdateRecent ", s.chainID, s.minblock, s.maxblock, len(s.oracles))
+	go s.recent(0)
 
-	go s.recent()
+	return nil
+}
+
+func (s *scraperImpl) UpdateEvents(oracleaddresses []common.Address) error {
+	log.Printf("UpdateEvents started for chain %s, up to minimum block %s, maximum block %s and total oracles %d UpdateRecent ", s.chainID, s.minblock, s.maxblock, len(s.oracles))
+
+	go s.listenEvents(oracleaddresses)
 
 	return nil
 }

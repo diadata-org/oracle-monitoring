@@ -17,6 +17,8 @@ import (
 	"github.com/diadata-org/oracle-monitoring/internal/scraper"
 )
 
+var allOracles []string
+
 func main() {
 	db := database.NewPostgresDB()
 
@@ -31,27 +33,93 @@ func main() {
 		return
 	}
 
+	wsurlmap, err := db.GetWSByChainID()
+	if err != nil {
+		log.Printf("failed to get rpcmap: %v", err)
+		return
+	}
+
 	log.Println("starting historical")
-	for chainid, _ := range rpcmap {
-		go runScraper(db, chainid, true, rpcmap)
+	for chainid := range rpcmap {
+		go runScraper(db, chainid, true, rpcmap, wsurlmap)
+		go runEventScraper(db, chainid, true, rpcmap, wsurlmap)
+
 	}
 
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		for chainid, _ := range rpcmap {
-			go runScraper(db, chainid, false, rpcmap)
+		for chainid := range rpcmap {
+			go runScraper(db, chainid, false, rpcmap, wsurlmap)
 		}
 	}
 }
 
-func runScraper(db database.Database, chainID string, isHistorical bool, rpcmap map[string]string) {
+func runEventScraper(db database.Database, chainID string, isHistorical bool, rpcmap, wsurlmap map[string]string) {
 	var wg sync.WaitGroup
 	metricsChan := make(chan helpers.OracleMetrics)
 	updateEventChan := make(chan helpers.OracleUpdateEvent)
 
 	oracles, err := getOracles(db, chainID)
+
+	if err != nil {
+		log.Fatalf("failed to get oracles: %v", err)
+	}
+
+	if len(oracles) > 0 {
+
+		fmt.Printf("\n Scrapping started for chain %s, up to minimum block %s, maximum block %s and total oracles %d isHistorical %t", chainID, nil, nil, len(oracles), isHistorical)
+
+		ctx := context.Background()
+		sc := scraper.NewScraper(ctx, metricsChan, updateEventChan, rpcmap, wsurlmap, big.NewInt(0), big.NewInt(0), oracles, &wg, chainID)
+
+		oraclesArray := []common.Address{}
+
+		var latest time.Time
+
+		go func() {
+			ticker := time.NewTicker(1 * time.Minute)
+			defer ticker.Stop()
+			for range ticker.C {
+
+				oracles, err := getOraclesByCreationTime(db, chainID, latest)
+				if err != nil {
+					fmt.Println("getOraclesByCreationTime err", err)
+					continue
+				}
+
+				fmt.Println("oracles added", len(oracles))
+
+				for _, oracle := range oracles {
+
+					if latest.Before(oracle.CreatedDate) {
+						latest = oracle.CreatedDate
+					}
+
+					oraclesArray = append(oraclesArray, oracle.ContractAddress)
+
+				}
+
+				sc.UpdateEvents(oraclesArray)
+
+			}
+
+		}()
+
+		go processMetrics(db, metricsChan)
+		go processCreation(db, updateEventChan)
+	}
+
+}
+
+func runScraper(db database.Database, chainID string, isHistorical bool, rpcmap, wsurlmap map[string]string) {
+	var wg sync.WaitGroup
+	metricsChan := make(chan helpers.OracleMetrics)
+	updateEventChan := make(chan helpers.OracleUpdateEvent)
+
+	oracles, err := getOracles(db, chainID)
+
 	if err != nil {
 		log.Fatalf("failed to get oracles: %v", err)
 	}
@@ -62,12 +130,13 @@ func runScraper(db database.Database, chainID string, isHistorical bool, rpcmap 
 		fmt.Printf("\n Scrapping started for chain %s, up to minimum block %s, maximum block %s and total oracles %d isHistorical %t", chainID, minimum, maximum, len(oracles), isHistorical)
 
 		ctx := context.Background()
-		sc := scraper.NewScraper(ctx, metricsChan, updateEventChan, rpcmap, minimum, maximum, oracles, &wg, chainID)
+		sc := scraper.NewScraper(ctx, metricsChan, updateEventChan, rpcmap, wsurlmap, minimum, maximum, oracles, &wg, chainID)
 		if isHistorical {
 			go sc.UpdateHistorical()
 
 		} else {
 			sc.UpdateRecent()
+
 		}
 		go processMetrics(db, metricsChan)
 		go processCreation(db, updateEventChan)
@@ -75,6 +144,31 @@ func runScraper(db database.Database, chainID string, isHistorical bool, rpcmap 
 
 }
 
+func getOraclesByCreationTime(db database.Database, chainID string, createdtime time.Time) (oracles []helpers.Oracle, err error) {
+
+	oracleConfigs, err := db.SelectOraclesWithCreationTime(chainID, createdtime)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get the saved metadata from the DB: %v", err)
+	}
+
+	for _, oracleconfig := range oracleConfigs {
+		var oracle helpers.Oracle
+		var oracleABI *abi.ABI
+		oracleABI, err := config.LoadContractAbi(fmt.Sprintf("internal/abi/%s.json", "oracle-v2"))
+		if err != nil {
+			return nil, fmt.Errorf("failed to load the oracle contract ABI: %v", err)
+		}
+		oracle.NodeUrl = oracleconfig.NodeUrl
+		oracle.ContractABI = oracleABI
+		oracle.CreatedDate = oracleconfig.CreatedDate
+		oracle.ChainID = oracleconfig.ChainId
+		oracle.ContractAddress = common.HexToAddress(oracleconfig.ContractAddress)
+		oracle.LatestScrapedBlock = new(big.Int).SetUint64(oracleconfig.LatestScrapedBlock)
+		oracles = append(oracles, oracle)
+	}
+	return oracles, nil
+
+}
 func getOracles(db database.Database, chainID string) (oracles []helpers.Oracle, err error) {
 	oracleConfigs, err := db.SelectOracles(chainID)
 	if err != nil {
