@@ -333,6 +333,7 @@ func (s *scraperImpl) listenEvents(addresses []common.Address) {
 			metadata.BlockTimestamp = time.Unix(int64(block.Time()), 0)
 			metadata.GasUsed = strconv.FormatUint(receipt.GasUsed, 10)
 			metadata.GasCost = receipt.EffectiveGasPrice.String()
+			metadata.ChainID = s.chainID
 
 			tx, _, err := s.client.TransactionByHash(context.Background(), eventLog.TxHash)
 			if err != nil {
