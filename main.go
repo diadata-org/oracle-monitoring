@@ -69,7 +69,7 @@ func runEventScraper(db database.Database, chainID string, isHistorical bool, rp
 
 	if len(oracles) > 0 {
 
-		fmt.Printf("\n Scrapping started for chain %s, up to minimum block %s, maximum block %s and total oracles %d isHistorical %t", chainID, nil, nil, len(oracles), isHistorical)
+		fmt.Printf("\n Event based Scrapping started for chain %s,  total oracles %d isHistorical %t", chainID, len(oracles), isHistorical)
 
 		ctx := context.Background()
 		sc := scraper.NewScraper(ctx, metricsChan, updateEventChan, rpcmap, wsurlmap, big.NewInt(0), big.NewInt(0), oracles, &wg, chainID)
@@ -102,6 +102,7 @@ func runEventScraper(db database.Database, chainID string, isHistorical bool, rp
 				}
 
 				sc.UpdateEvents(oraclesArray)
+				sc.UpdateDeployedDate(oracles)
 
 			}
 

@@ -26,6 +26,7 @@ type Scraper interface {
 	UpdateHistorical() error
 	UpdateRecent() error
 	UpdateEvents(oracleaddresses []common.Address) error
+	UpdateDeployedDate(oracleaddresses []helpers.Oracle) error
 }
 
 type scraperImpl struct {
@@ -487,6 +488,49 @@ func (s *scraperImpl) UpdateEvents(oracleaddresses []common.Address) error {
 	log.Printf("UpdateEvents started for chain %s, up to minimum block %s, maximum block %s and total oracles %d UpdateRecent ", s.chainID, s.minblock, s.maxblock, len(s.oracles))
 
 	go s.listenEvents(oracleaddresses)
+
+	return nil
+}
+
+func (s *scraperImpl) UpdateDeployedDate(oracleaddresses []helpers.Oracle) error {
+	fmt.Println("UpdateDeployedDate total ", len(oracleaddresses))
+
+	for _, oracle := range oracleaddresses {
+		data, _ := oracle.ContractABI.Pack("deployedBlockNumber")
+
+		// Create a call message
+		msg := ethereum.CallMsg{
+			To:   &oracle.ContractAddress,
+			Data: data,
+		}
+
+		result, err := s.wsClient.CallContract(context.Background(), msg, nil)
+		if err != nil {
+			log.Printf("error calling contract %s err %s", &oracle.ContractAddress, err)
+
+			continue
+		}
+
+		deployedBlockNumber := new(big.Int).SetBytes(result)
+
+		block, err := s.client.BlockByNumber(s.ctx, deployedBlockNumber)
+		if err != nil {
+			log.Printf("error BlockByNumber %s", oracle.ContractAddress.Hex())
+
+			continue
+		}
+
+		ue := helpers.OracleUpdateEvent{}
+		ue.Address = oracle.ContractAddress.Hex()
+		ue.Block = deployedBlockNumber.String()
+		ue.ChainID = s.chainID
+		ue.BlockTimestamp = time.Unix(int64(block.Time()), 0)
+
+		s.createChan <- ue
+
+	}
+
+	// /OracleUpdateEvent
 
 	return nil
 }

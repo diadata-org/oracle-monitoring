@@ -21,6 +21,8 @@ const (
 	updateOraclesCreationQuery = "UPDATE oracleconfig SET creation_block = $2, creation_block_time=$3 WHERE address = $1 and chainid =$4"
 	selectOraclesQuery         = `SELECT address, chainid,  COALESCE(latest.scraped_block, 0) AS latest_scraped_block FROM oracleconfig LEFT JOIN (SELECT oracle_address, chain_id, MAX(update_block) AS scraped_block FROM feederupdates GROUP BY oracle_address,chain_id) latest ON (oracleconfig.address = latest.oracle_address and oracleconfig.chainid = latest.chain_id) WHERE  oracleconfig.chainid = '%s'`
 	selectLatestOraclesQuery   = `SELECT address, chainid,  createddate,COALESCE(latest.scraped_block, 0) AS latest_scraped_block FROM oracleconfig LEFT JOIN (SELECT oracle_address, chain_id, MAX(update_block) AS scraped_block FROM feederupdates GROUP BY oracle_address,chain_id) latest ON (oracleconfig.address = latest.oracle_address and oracleconfig.chainid = latest.chain_id) WHERE  oracleconfig.chainid = '%s' and oracleconfig.createddate > '%s'`
+	selectState                = `SELECT chain_id, last_block FROM feederupdatestate WHERE chain_id=$1`
+	updateState                = `UPDATE feederupdatestate SET chain_id=$1, last_block=$2 where chain_id=$1 `
 )
 
 // Database is an interface that represents the required database operations.
@@ -33,6 +35,8 @@ type Database interface {
 	GetRPCByChainID() (map[string]string, error)
 	GetWSByChainID() (map[string]string, error)
 	SelectOraclesWithCreationTime(chainID string, lastCreatedTime time.Time) ([]helpers.Target, error)
+	GetState(chainID string) (helpers.OracleMetricsState, error)
+	SetState(state helpers.OracleMetricsState) error
 
 	Close()
 }
@@ -67,14 +71,24 @@ func (pdb *postgresDB) Connect() error {
 	return nil
 }
 
+func (pdb *postgresDB) GetState(chainID string) (os helpers.OracleMetricsState, err error) {
+	query := fmt.Sprintf(selectState)
+
+	row := pdb.db.QueryRow(context.Background(), query, chainID)
+	err = row.Scan(&os)
+	return
+
+}
+
+func (pdb *postgresDB) SetState(state helpers.OracleMetricsState) error {
+	_, err := pdb.db.Exec(context.Background(), updateState, state.ChainID, state.LastBlock)
+	if err != nil {
+		return fmt.Errorf("failed to update the SetState  in the DB: %v", err)
+	}
+	return err
+}
+
 func (pdb *postgresDB) InsertOracles(targets []helpers.Target) error {
-	// Insert targets into the database
-	// for _, target := range targets {
-	// 	_, err := pdb.db.Exec(context.Background(), insertOraclesQuery, target.ContractAddress, target.ContractABI, target.ChainId, target.NodeUrl, 0)
-	// 	if err != nil {
-	// 		return fmt.Errorf("failed to insert oracle: %v", err)
-	// 	}
-	// }
 
 	return nil
 }

@@ -58,6 +58,11 @@ type OracleMetrics struct {
 	UpdateTimestamp string
 }
 
+type OracleMetricsState struct {
+	ChainID   string
+	LastBlock uint64
+}
+
 type OracleUpdateEvent struct {
 	Address        string
 	Block          string

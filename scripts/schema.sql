@@ -25,3 +25,9 @@ CREATE TABLE IF NOT EXISTS feederupdates (
 
 );
 
+CREATE TABLE IF NOT EXISTS feederupdatestate (
+  id BIGSERIAL PRIMARY KEY,
+  chain_id TEXT NOT NULL ,
+  last_block BIGINT NOT NULL
+);
+
