@@ -103,8 +103,6 @@ func (s *scraperImpl) connectToWsNode() (*ethclient.Client, error) {
 
 	url := s.wsurl[s.chainID]
 
-	fmt.Println("url", url)
-
 	if client, ok := s.wsNodes[url]; ok {
 		return client, nil
 	}
@@ -297,7 +295,8 @@ func (s *scraperImpl) listenEvents(addresses []common.Address) {
 		Topics:    [][]common.Hash{{topic}},
 	}, updateeventchan)
 	if err != nil {
-		log.Fatalf("Failed to subscribe to event logs: %v", err)
+		s.logger.Printf("Failed to subscribe to event logs: %v", err)
+		return
 	}
 
 	defer subscription.Unsubscribe()
@@ -305,14 +304,14 @@ func (s *scraperImpl) listenEvents(addresses []common.Address) {
 	for {
 		select {
 		case err := <-subscription.Err():
-			log.Println("Subscription error: %v", err)
+			s.logger.Printf("subscription error: %v", err)
 		case eventLog := <-updateeventchan:
 
 			eventData := make(map[string]interface{})
 
 			err := s.oraclesmap[eventLog.Address].ContractABI.UnpackIntoMap(eventData, "OracleUpdate", eventLog.Data)
 			if err != nil {
-				log.Printf("ailed to unpack log data: %v", err)
+				s.logger.Printf("failed to unpack log data: %v", err)
 			}
 
 			receipt, err := s.client.TransactionReceipt(s.ctx, eventLog.TxHash)
@@ -471,21 +470,21 @@ func (s *scraperImpl) historical() error {
 }
 
 func (s *scraperImpl) UpdateHistorical() error {
-	log.Printf("Scrapping started for chain %s, up to minimum block %s, maximum block %s and total oracles %d UpdateHistorical ", s.chainID, s.minblock, s.maxblock, len(s.oracles))
+	s.logger.Printf("Scrapping started for chain %s, up to minimum block %s, maximum block %s and total oracles %d UpdateHistorical ", s.chainID, s.minblock, s.maxblock, len(s.oracles))
 	s.isHistorical = true
 	go s.historical()
 	return nil
 }
 
 func (s *scraperImpl) UpdateRecent() error {
-	log.Printf("Scrapping started for chain %s, up to minimum block %s, maximum block %s and total oracles %d UpdateRecent ", s.chainID, s.minblock, s.maxblock, len(s.oracles))
+	s.logger.Printf("Scrapping started for chain %s, up to minimum block %s, maximum block %s and total oracles %d UpdateRecent ", s.chainID, s.minblock, s.maxblock, len(s.oracles))
 	go s.recent(0)
 
 	return nil
 }
 
 func (s *scraperImpl) UpdateEvents(oracleaddresses []common.Address) error {
-	log.Printf("UpdateEvents started for chain %s, up to minimum block %s, maximum block %s and total oracles %d UpdateRecent ", s.chainID, s.minblock, s.maxblock, len(s.oracles))
+	s.logger.Printf("UpdateEvents started for chain %s, up to minimum block %s, maximum block %s and total oracles %d UpdateRecent ", s.chainID, s.minblock, s.maxblock, len(s.oracles))
 
 	go s.listenEvents(oracleaddresses)
 
@@ -506,7 +505,7 @@ func (s *scraperImpl) UpdateDeployedDate(oracleaddresses []helpers.Oracle) error
 
 		result, err := s.wsClient.CallContract(context.Background(), msg, nil)
 		if err != nil {
-			log.Printf("error calling contract %s err %s", &oracle.ContractAddress, err)
+			s.logger.Printf("error calling contract %s err %s", &oracle.ContractAddress, err)
 
 			continue
 		}
@@ -515,7 +514,7 @@ func (s *scraperImpl) UpdateDeployedDate(oracleaddresses []helpers.Oracle) error
 
 		block, err := s.client.BlockByNumber(s.ctx, deployedBlockNumber)
 		if err != nil {
-			log.Printf("error BlockByNumber %s", oracle.ContractAddress.Hex())
+			s.logger.Printf("error BlockByNumber %s", oracle.ContractAddress.Hex())
 
 			continue
 		}

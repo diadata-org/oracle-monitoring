@@ -185,7 +185,6 @@ func (pdb *postgresDB) InsertOracleMetrics(metrics *helpers.OracleMetrics) error
 	)
 
 	metrics.CreationBlock = "0"
-	fmt.Println("metrics.CreationBlock", metrics.CreationBlock)
 
 	// Insert metrics into the database
 	_, err := pdb.db.Exec(
