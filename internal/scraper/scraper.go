@@ -292,12 +292,21 @@ func (s *scraperImpl) listenEvents(addresses []common.Address) {
 
 	topic := s.oraclesmap[s.oraclesaddresses[0]].ContractABI.Events["OracleUpdate"].ID
 
+	latestBlock, err := s.wsClient.BlockNumber(ctx)
+	if err != nil {
+		s.logger.Printf("Failed to get latest BlockNumber : %v chainid %s ", err, s.chainID)
+		return
+	}
+
+	latestBlock = latestBlock - 500
+
 	subscription, err := s.wsClient.SubscribeFilterLogs(ctx, ethereum.FilterQuery{
 		Addresses: addresses,
+		FromBlock: big.NewInt(int64(latestBlock)),
 		Topics:    [][]common.Hash{{topic}},
 	}, updateeventchan)
 	if err != nil {
-		s.logger.Printf("Failed to subscribe to event logs: %v chainid ", err, s.chainID)
+		s.logger.Printf("Failed to subscribe to event logs: %v chainid %s ", err, s.chainID)
 		return
 	}
 
