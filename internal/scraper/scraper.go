@@ -51,7 +51,7 @@ type scraperImpl struct {
 }
 
 // NewScraper creates a new instance of the Scraper interface.
-func NewScraper(context context.Context, mchan chan helpers.OracleMetrics, createChan chan helpers.OracleUpdateEvent, rpcmap, wsmap map[string]string, minblock *big.Int, maxblock *big.Int, oracles []helpers.Oracle, wg *sync.WaitGroup, chainID string) Scraper {
+func NewScraper(context context.Context, mchan chan helpers.OracleMetrics, createChan chan helpers.OracleUpdateEvent, rpcmap, wsmap map[string]string, minblock *big.Int, maxblock *big.Int, oracles []helpers.Oracle, wg *sync.WaitGroup, chainID string) (Scraper, error) {
 
 	id := uuid.Must(uuid.NewRandom()).String()
 	logger := log.New(os.Stderr, "", log.LstdFlags)
@@ -87,14 +87,16 @@ func NewScraper(context context.Context, mchan chan helpers.OracleMetrics, creat
 	s.client, err = s.connectToNode()
 	if err != nil {
 		s.logger.Println("error connecting to rpc chainid ", chainID)
+		return s, err
 	}
 
 	s.wsClient, err = s.connectToWsNode()
 	if err != nil {
 		s.logger.Println("error connecting to ws chainid  ", chainID)
-		panic("")
+		return s, err
+
 	}
-	return s
+	return s, nil
 
 }
 
@@ -304,7 +306,7 @@ func (s *scraperImpl) listenEvents(addresses []common.Address) {
 	for {
 		select {
 		case err := <-subscription.Err():
-			s.logger.Printf("subscription error: %v", err)
+			s.logger.Printf("subscription error: %v chainID %s", err, s.chainID)
 		case eventLog := <-updateeventchan:
 
 			eventData := make(map[string]interface{})
@@ -317,20 +319,33 @@ func (s *scraperImpl) listenEvents(addresses []common.Address) {
 			receipt, err := s.client.TransactionReceipt(s.ctx, eventLog.TxHash)
 			if err != nil {
 				fmt.Printf("failed to get transaction receipt: %v", err)
+				continue
 			}
+			metadata := helpers.TransactionMetadata{}
 
 			block, err := s.client.BlockByNumber(s.ctx, new(big.Int).SetUint64(eventLog.BlockNumber))
 			if err != nil {
 				s.logger.Printf("failed to retrieve a block: %v, %v, chainid %s ", eventLog.BlockNumber, err, s.chainID)
-				continue
+			} else {
+				metadata.BlockTimestamp = time.Unix(int64(block.Time()), 0)
+
 			}
 
-			metadata := helpers.TransactionMetadata{}
+			fmt.Printf("chainid: %v", s.chainID)
+
+			// fmt.Printf("eventLog: %v", eventLog)
+
 			metadata.BlockNumber = strconv.Itoa(int(eventLog.BlockNumber))
 			// metadata.BlockTimestamp = eventLog.
 			metadata.TransactionHash = eventLog.TxHash.Hex()
+
+			fmt.Printf("receipt: %v", receipt)
+
+			fmt.Printf("receipt.GasUsed: %v", receipt.GasUsed)
+			fmt.Printf("receipt.EffectiveGasPrice: %v", receipt.EffectiveGasPrice)
+			fmt.Printf("chainid: %v", s.chainID)
+
 			metadata.TransactionCost = new(big.Int).Mul(new(big.Int).SetUint64(receipt.GasUsed), receipt.EffectiveGasPrice).String()
-			metadata.BlockTimestamp = time.Unix(int64(block.Time()), 0)
 			metadata.GasUsed = strconv.FormatUint(receipt.GasUsed, 10)
 			metadata.GasCost = receipt.EffectiveGasPrice.String()
 			metadata.ChainID = s.chainID
@@ -424,7 +439,7 @@ func (s *scraperImpl) recent(current uint64) (err error) {
 		current = current - 1
 
 	}
-
+	s.wg.Done()
 	s.logger.Printf("done  oracles  ")
 
 	return nil
@@ -462,6 +477,7 @@ func (s *scraperImpl) historical() error {
 		s.logger.Printf("decrease current %d  ", current)
 
 	}
+
 	s.wg.Done()
 
 	s.logger.Printf(" done  oracles  ")
@@ -472,12 +488,15 @@ func (s *scraperImpl) historical() error {
 func (s *scraperImpl) UpdateHistorical() error {
 	s.logger.Printf("Scrapping started for chain %s, up to minimum block %s, maximum block %s and total oracles %d UpdateHistorical ", s.chainID, s.minblock, s.maxblock, len(s.oracles))
 	s.isHistorical = true
+	s.wg.Add(1)
 	go s.historical()
 	return nil
 }
 
 func (s *scraperImpl) UpdateRecent() error {
 	s.logger.Printf("Scrapping started for chain %s, up to minimum block %s, maximum block %s and total oracles %d UpdateRecent ", s.chainID, s.minblock, s.maxblock, len(s.oracles))
+	s.wg.Add(1)
+
 	go s.recent(0)
 
 	return nil
@@ -513,17 +532,18 @@ func (s *scraperImpl) UpdateDeployedDate(oracleaddresses []helpers.Oracle) error
 		deployedBlockNumber := new(big.Int).SetBytes(result)
 
 		block, err := s.client.BlockByNumber(s.ctx, deployedBlockNumber)
-		if err != nil {
-			s.logger.Printf("error BlockByNumber %s", oracle.ContractAddress.Hex())
-
-			continue
-		}
-
 		ue := helpers.OracleUpdateEvent{}
 		ue.Address = oracle.ContractAddress.Hex()
 		ue.Block = deployedBlockNumber.String()
+
+		if err != nil {
+			s.logger.Printf("error BlockByNumber, oracle %s  chainID: %s %v", oracle.ContractAddress.Hex(), s.chainID, err)
+
+		} else {
+			ue.BlockTimestamp = time.Unix(int64(block.Time()), 0)
+		}
+
 		ue.ChainID = s.chainID
-		ue.BlockTimestamp = time.Unix(int64(block.Time()), 0)
 
 		s.createChan <- ue
 

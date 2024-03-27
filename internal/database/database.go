@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -32,8 +33,8 @@ type Database interface {
 	UpdateOracleCreation(address string, block string, blocktime time.Time, chainid string) error
 	SelectOracles(string) ([]helpers.Target, error)
 	InsertOracleMetrics(metrics *helpers.OracleMetrics) error
-	GetRPCByChainID() (map[string]string, error)
-	GetWSByChainID() (map[string]string, error)
+	GetRPCByChainID([]string) (map[string]string, error)
+	GetWSByChainID([]string) (map[string]string, error)
 	SelectOraclesWithCreationTime(chainID string, lastCreatedTime time.Time) ([]helpers.Target, error)
 	GetState(chainID string) (helpers.OracleMetricsState, error)
 	SetState(state helpers.OracleMetricsState) error
@@ -103,6 +104,7 @@ func (pdb *postgresDB) UpdateOracleCreation(address string, block string, blockt
 	return nil
 }
 func (pdb *postgresDB) SelectOraclesWithCreationTime(chainID string, lastCreatedTime time.Time) ([]helpers.Target, error) {
+	fmt.Println("SelectOraclesWithCreationTime")
 	targets := []helpers.Target{}
 
 	// Retrieve oracles with the latest scraped block
@@ -154,22 +156,22 @@ func (pdb *postgresDB) SelectOracles(chainID string) ([]helpers.Target, error) {
 }
 
 func (pdb *postgresDB) InsertOracleMetrics(metrics *helpers.OracleMetrics) error {
-	insertMetricsQuery := fmt.Sprintf("INSERT INTO %s (oracle_address,transaction_hash,transaction_cost,asset_key,asset_price,update_block, update_from, from_balance, gas_cost, gas_used,creation_block,chain_id,update_time) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11,$12,$13)", feederupdatesTable)
+	insertMetricsQuery := fmt.Sprintf("INSERT INTO %s (oracle_address,transaction_hash,transaction_cost,asset_key,asset_price,update_block, update_from, from_balance, gas_cost, gas_used,creation_block,chain_id,update_time) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10,$11,$12,$13) ON CONFLICT (transaction_hash) DO NOTHING", feederupdatesTable)
 
 	fmt.Printf(
 		"-- Inserted Metrics --\n"+
-			"TransactionTo: %s"+
-			"TransactionHash: %s"+
-			"TransactionCost: %s"+
-			"AssetKey: %s"+
-			"AssetPrice: %s"+
-			"BlockNumber: %s"+
-			"TransactionFrom: %s"+
-			"SenderBalance: %s"+
-			"GasCost: %s"+
-			"GasUsed: %s"+
-			"ChainID: %s"+
-			"BlockTimestamp: %s",
+			" TransactionTo: %s "+
+			" TransactionHash: %s "+
+			" TransactionCost: %s "+
+			" AssetKey: %s "+
+			" AssetPrice: %s "+
+			" BlockNumber: %s "+
+			" TransactionFrom: %s "+
+			" SenderBalance: %s "+
+			" GasCost: %s "+
+			" GasUsed: %s "+
+			" ChainID: %s "+
+			" BlockTimestamp: %s ",
 		metrics.TransactionTo,
 		metrics.TransactionHash,
 		metrics.TransactionCost,
@@ -205,6 +207,9 @@ func (pdb *postgresDB) InsertOracleMetrics(metrics *helpers.OracleMetrics) error
 		metrics.BlockTimestamp,
 	)
 	if err != nil {
+		if strings.Contains(err.Error(), "duplicate key value violates unique constraint") {
+			return nil
+		}
 		return fmt.Errorf("failed to insert metrics in the DB: %v", err)
 	}
 
@@ -212,13 +217,17 @@ func (pdb *postgresDB) InsertOracleMetrics(metrics *helpers.OracleMetrics) error
 }
 
 // GetRPCByChainID returns the RPC URL for the given chain ID.
-func (pdb *postgresDB) GetRPCByChainID() (rpc map[string]string, err error) {
+func (pdb *postgresDB) GetRPCByChainID(chainIDs []string) (rpc map[string]string, err error) {
 
 	query := `SELECT rpcurl, chainid from %s`
 
+	if len(chainIDs) > 0 {
+		query = `SELECT rpcurl, chainid from %s WHERE chainid = ANY($1)`
+	}
+
 	rpc = make(map[string]string)
 
-	rows, err := pdb.db.Query(context.Background(), fmt.Sprintf(query, chainconfig))
+	rows, err := pdb.db.Query(context.Background(), fmt.Sprintf(query, chainconfig), chainIDs)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch data from the DB query: %v", err)
@@ -237,13 +246,17 @@ func (pdb *postgresDB) GetRPCByChainID() (rpc map[string]string, err error) {
 }
 
 // GetWSByChainID returns the WS URL for the given chain ID.
-func (pdb *postgresDB) GetWSByChainID() (rpc map[string]string, err error) {
+func (pdb *postgresDB) GetWSByChainID(chainIDs []string) (rpc map[string]string, err error) {
 
 	query := `SELECT wsurl, chainid from %s`
 
+	if len(chainIDs) > 0 {
+		query = `SELECT wsurl, chainid from %s WHERE chainid = ANY($1)`
+	}
+
 	rpc = make(map[string]string)
 
-	rows, err := pdb.db.Query(context.Background(), fmt.Sprintf(query, chainconfig))
+	rows, err := pdb.db.Query(context.Background(), fmt.Sprintf(query, chainconfig), chainIDs)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch data from the DB query: %v", err)
