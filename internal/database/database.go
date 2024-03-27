@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/lib/pq"
 
 	"github.com/diadata-org/oracle-monitoring/internal/helpers"
 )
@@ -227,8 +229,12 @@ func (pdb *postgresDB) GetRPCByChainID(chainIDs []string) (rpc map[string]string
 
 	rpc = make(map[string]string)
 
-	rows, err := pdb.db.Query(context.Background(), fmt.Sprintf(query, chainconfig), chainIDs)
-
+	var rows pgx.Rows
+	if len(chainIDs) > 0 {
+		rows, err = pdb.db.Query(context.Background(), fmt.Sprintf(query, chainconfig), pq.Array(chainIDs))
+	} else {
+		rows, err = pdb.db.Query(context.Background(), fmt.Sprintf(query, chainconfig))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch data from the DB query: %v", err)
 	}
@@ -256,8 +262,12 @@ func (pdb *postgresDB) GetWSByChainID(chainIDs []string) (rpc map[string]string,
 
 	rpc = make(map[string]string)
 
-	rows, err := pdb.db.Query(context.Background(), fmt.Sprintf(query, chainconfig), chainIDs)
-
+	var rows pgx.Rows
+	if len(chainIDs) > 0 {
+		rows, err = pdb.db.Query(context.Background(), fmt.Sprintf(query, chainconfig), pq.Array(chainIDs))
+	} else {
+		rows, err = pdb.db.Query(context.Background(), fmt.Sprintf(query, chainconfig))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch data from the DB query: %v", err)
 	}
