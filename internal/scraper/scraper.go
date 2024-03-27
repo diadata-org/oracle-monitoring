@@ -297,7 +297,7 @@ func (s *scraperImpl) listenEvents(addresses []common.Address) {
 		Topics:    [][]common.Hash{{topic}},
 	}, updateeventchan)
 	if err != nil {
-		s.logger.Printf("Failed to subscribe to event logs: %v", err)
+		s.logger.Printf("Failed to subscribe to event logs: %v chainid ", err, s.chainID)
 		return
 	}
 
@@ -503,7 +503,7 @@ func (s *scraperImpl) UpdateRecent() error {
 }
 
 func (s *scraperImpl) UpdateEvents(oracleaddresses []common.Address) error {
-	s.logger.Printf("UpdateEvents started for chain %s, up to minimum block %s, maximum block %s and total oracles %d UpdateRecent ", s.chainID, s.minblock, s.maxblock, len(s.oracles))
+	s.logger.Printf("UpdateEvents started for chain %s, up to minimum block %s, maximum block %s and total oracles %d ", s.chainID, s.minblock, s.maxblock, len(s.oracles))
 
 	go s.listenEvents(oracleaddresses)
 
